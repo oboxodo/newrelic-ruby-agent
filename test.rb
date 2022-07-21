@@ -1,68 +1,106 @@
 require 'benchmark'
+# require 'benchmark/ips'
 
-TIMES = 100_000
-RANGE1 = (1..100_000)
-RANGE2 = (77_000..125_000)
-RANGES = [1..10_000, 15_000..20_000, 60_000..70_000, 90_000..120_000]
+RUNS = 100.freeze
+STARTING_ARRAY_SIZE = 100.freeze
+EXISTING_RANGES = [(Time.now.to_f)..(Time.now.to_f + 5.0)]
+until EXISTING_RANGES.size == STARTING_ARRAY_SIZE
+  start = EXISTING_RANGES.last.end + 2.0
+  stop = start + rand((start + 1.0)..(start + 10_000.0))
+  EXISTING_RANGES << (start..stop)
+end
+EXISTING_RANGES.freeze
+NEW_RANGES = [(EXISTING_RANGES.first.begin + 2.0)..(EXISTING_RANGES.first.begin + 3.0)]
+until NEW_RANGES.size == STARTING_ARRAY_SIZE
+  start = NEW_RANGES.last.end + 2.0
+  stop = start + rand((start + 1.0)..(start + 10_000.0))
+  NEW_RANGES << (start..stop)
+end
+NEW_RANGES.freeze
 
-Benchmark.bm do |bench|
-  bench.report('Original intersects?') do
-    TIMES.times do
-      RANGE1.include?(RANGE2.begin) || RANGE2.include?(RANGE1.begin)
-    end
+class Original
+  def intersects?(r1, r2)
+    r1.include?(r2.begin) || r2.include?(r1.begin)
   end
-  bench.report('New intersects?') do
-    TIMES.times do
-      RANGE2.begin == RANGE1.begin || RANGE1.cover?(RANGE2.begin) || RANGE2.cover?(RANGE1.begin)
+
+  def merge(r1, r2)
+    return unless intersects?(r1, r2)
+    range_min = r1.begin < r2.begin ? r1.begin : r2.begin
+    range_max = r1.end > r2.end ? r1.end : r2.end
+    range_min..range_max
+  end
+
+  def merge_or_append(range, ranges)
+    ranges.each_with_index do |r, i|
+      if merged = merge(r, range)
+        ranges[i] = merged
+        return ranges
+      end
     end
+    ranges.push(range)
   end
 end
 
-puts
-puts
-puts
-
-Benchmark.bm do |bench|
-  bench.report('Original merge') do
-    TIMES.times do
-      range_min = RANGE1.begin < RANGE2.begin ? RANGE1.begin : RANGE2.begin
-      range_max = RANGE1.end > RANGE2.end ? RANGE1.end : RANGE2.end
-      range_min..range_max
-    end
+class Improved
+  def intersects?(r1, r2)
+    r1.begin > r2.begin ? r2.cover?(r1.begin) : r1.cover?(r2.begin)
   end
-  bench.report('New merge') do
-    TIMES.times do
-      (RANGE1.begin < RANGE2.begin ? RANGE1.begin : RANGE2.begin)..(RANGE1.end > RANGE2.end ? RANGE1.end : RANGE2.end)
-    end
+
+  def merge(r1, r2)
+    (r1.begin < r2.begin ? r1.begin : r2.begin)..(r1.end > r2.end ? r1.end : r2.end)
+  end
+
+  def merge_or_append(range, ranges)
+    i = ranges.index { |r| intersects?(r, range) }
+    (ranges[i] = merge(ranges[i], range) and return ranges) if i
+    ranges << range
   end
 end
 
+class Experimental
+  def intersects?(r1, r2)
+    r1.begin > r2.begin ? r2.cover?(r1.begin) : r1.cover?(r2.begin)
+  end
 
-puts
-puts
-puts
+  def merge(r1, r2)
+    (r1.begin < r2.begin ? r1.begin : r2.begin)..(r1.end > r2.end ? r1.end : r2.end)
+  end
+
+  def merge_or_append(range, ranges)
+    # return ranges << range if ranges.size > 10
+    i = ranges.index { |r| intersects?(r, range) }
+    (ranges[i] = merge(ranges[i], range) and return ranges) if i
+    ranges << range
+  end
+end
 
 Benchmark.bm do |bench|
-  bench.report('Original merge_or_append') do
-    TIMES.times do
-      duped = RANGES.dup
-      merged = false
-      duped.each_with_index do |r, i|
-        if r.include?(RANGE2.begin) || RANGE2.include?(r.begin)
-          range_min = r.begin < RANGE2.begin ? r.begin : RANGE2.begin
-          range_max = r.end > RANGE2.end ? r.end : RANGE2.end
-          merged = range_min..range_max
-          duped[i] = merged
-          merged = true
-        end
-        duped.push(RANGE2) unless merged
+# Benchmark.ips do |bench|
+  bench.report('Original') do
+    RUNS.times do
+      original = Original.new
+      ranges = EXISTING_RANGES.dup
+      NEW_RANGES.each do |new_range|
+        original.merge_or_append(new_range, ranges)
       end
     end
   end
-  bench.report('New merge_or_append') do
-    TIMES.times do
-
+  bench.report('Improved') do
+    RUNS.times do
+      improved = Improved.new
+      ranges = EXISTING_RANGES.dup
+      NEW_RANGES.each do |new_range|
+        improved.merge_or_append(new_range, ranges)
+      end
+    end
+  end
+  bench.report('Experimental') do
+    RUNS.times do
+      experimental = Experimental.new
+      ranges = EXISTING_RANGES.dup
+      NEW_RANGES.each do |new_range|
+        experimental.merge_or_append(new_range, ranges)
+      end
     end
   end
 end
-

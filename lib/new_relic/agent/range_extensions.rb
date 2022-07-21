@@ -9,12 +9,11 @@ module NewRelic
       module_function
 
       def intersects?(r1, r2)
-        r1.include?(r2.begin) || r2.include?(r1.begin)
-
-        # adapted from Rails - activesupport/lib/active_support/core_ext/range/overlaps.rb
-        # r2.begin == r1.begin || r1.cover?(r2.begin) || r2.cover?(r1.begin)
+        r1.begin > r2.begin ? r2.cover?(r1.begin) : r1.cover?(r2.begin)
       end
 
+      # merge two Range instances by creating a new instance from the smallest
+      # and largest values
       def merge(r1, r2)
         (r1.begin < r2.begin ? r1.begin : r2.begin)..(r1.end > r2.end ? r1.end : r2.end)
       end
@@ -23,9 +22,10 @@ module NewRelic
       # merge into an existing range if they intersect, otherwise
       # it will append this range to the end the array.
       def merge_or_append(range, ranges)
+        return ranges << range if ranges.size > 10
+
         i = ranges.index { |r| intersects?(r, range) }
         (ranges[i] = merge(ranges[i], range) and return ranges) if i
-
         ranges << range
       end
 
@@ -35,9 +35,9 @@ module NewRelic
       def compute_overlap(range, ranges)
         ranges.inject(0) do |memo, other|
           next memo unless intersects?(range, other)
-          lower_bound = range.begin > other.begin ? range.begin : other.begin
-          upper_bound = range.end < other.end ? range.end : other.end
-          memo += upper_bound - lower_bound
+
+          memo += (range.end < other.end ? range.end : other.end) -
+            (range.begin > other.begin ? range.begin : other.begin)
         end
       end
     end
